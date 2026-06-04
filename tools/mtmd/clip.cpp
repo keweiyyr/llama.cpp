@@ -941,6 +941,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             {
                 builder = std::make_unique<clip_graph_kimik25>(ctx, img);
             } break;
+        case PROJECTOR_TYPE_LOCATEANYTHING:
+            {
+                builder = std::make_unique<clip_graph_locateanything>(ctx, img);
+            } break;
         case PROJECTOR_TYPE_COGVLM:
             {
                 builder = std::make_unique<clip_graph_cogvlm>(ctx, img);
@@ -1381,6 +1385,29 @@ struct clip_model_loader {
                             hparams.warmup_image_size = static_cast<int>(std::sqrt(max_pixels));
                         } else {
                             hparams.set_limit_image_tokens(2, 4096);
+                        }
+                    } break;
+                case PROJECTOR_TYPE_LOCATEANYTHING:
+                    {
+                        // LocateAnything preprocessor (image_processing_locateanything.py):
+                        // BICUBIC + aspect-preserving downscale to token budget + direct
+                        // stretch to next multiple of merge_kernel*patch_size = 28 per axis.
+                        // No letterbox padding.
+                        hparams.image_resize_algo = RESIZE_ALGO_BICUBIC_PILLOW;
+                        hparams.image_resize_pad  = PAD_NONE;
+                        hparams.rope_theta        = 10000.0f;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
+
+                        int min_pixels = 0, max_pixels = 0;
+                        get_u32(KEY_IMAGE_MIN_PIXELS, min_pixels, false);
+                        get_u32(KEY_IMAGE_MAX_PIXELS, max_pixels, false);
+                        if (min_pixels > 0 && max_pixels > 0) {
+                            hparams.image_min_pixels  = min_pixels;
+                            hparams.image_max_pixels  = max_pixels;
+                            hparams.warmup_image_size = static_cast<int>(std::sqrt(max_pixels));
+                        } else {
+                            // preprocessor_config.json default: in_token_limit=25600
+                            hparams.set_limit_image_tokens(8, 25600);
                         }
                     } break;
                 case PROJECTOR_TYPE_GEMMA3:
@@ -2246,6 +2273,7 @@ struct clip_model_loader {
             case PROJECTOR_TYPE_KIMIVL:
             case PROJECTOR_TYPE_PADDLEOCR:
             case PROJECTOR_TYPE_KIMIK25:
+            case PROJECTOR_TYPE_LOCATEANYTHING:
                 {
                     model.mm_input_norm_w = get_tensor(TN_MM_INP_NORM);
                     model.mm_input_norm_b = get_tensor(TN_MM_INP_NORM_B);
@@ -3281,6 +3309,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
         case PROJECTOR_TYPE_KIMIK25:
+        case PROJECTOR_TYPE_LOCATEANYTHING:
             {
                 // dynamic size
                 int out_patch_size = params.patch_size * ctx->model.hparams.n_merge;
@@ -3918,6 +3947,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_PIXTRAL:
         case PROJECTOR_TYPE_KIMIVL:
         case PROJECTOR_TYPE_KIMIK25:
+        case PROJECTOR_TYPE_LOCATEANYTHING:
         case PROJECTOR_TYPE_LIGHTONOCR:
             {
                 // set the 2D positions
@@ -4378,6 +4408,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_KIMIVL:
         case PROJECTOR_TYPE_PADDLEOCR:
         case PROJECTOR_TYPE_KIMIK25:
+        case PROJECTOR_TYPE_LOCATEANYTHING:
         case PROJECTOR_TYPE_YASA2:
             return ctx->model.mm_2_w->ne[1];
         case PROJECTOR_TYPE_HUNYUANVL:
