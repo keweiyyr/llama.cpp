@@ -1,53 +1,57 @@
-name: Build Windows
+name: Build llama.cpp LocateAnything Windows CUDA
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - '.github/workflows/build-windows.yml'
-      - 'CMakeLists.txt'
-      - 'cmake/**'
-      - 'src/**'
-      - 'include/**'
-      - 'common/**'
-      - 'examples/**'
-      - 'tools/**'
-      - 'ggml/**'
 
 jobs:
-  build-windows:
-    name: Windows x64 CPU
+  build:
     runs-on: windows-2022
 
     steps:
-      - name: Checkout
+      - name: Checkout yuuko-eth llama.cpp mtmd-grounders
         uses: actions/checkout@v4
         with:
+          repository: yuuko-eth/llama.cpp
+          ref: mtmd-grounders
           submodules: recursive
 
-      - name: Configure
-        run: >
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-          -DCMAKE_BUILD_TYPE=Release
-          -DLLAMA_BUILD_TESTS=OFF
-          -DLLAMA_FATAL_WARNINGS=OFF
-          -DGGML_NATIVE=OFF
+      - name: Check branch and commit
+        shell: powershell
+        run: |
+          git branch
+          git rev-parse HEAD
+          git log -1 --oneline
+          git grep -n "locateanything" -- . || exit 1
 
-      - name: Build
-        run: cmake --build build --config Release --parallel
+      - name: Setup CUDA
+        uses: Jimver/cuda-toolkit@v0.2.24
+        with:
+          cuda: '12.4.1'
 
-      - name: List binaries
-        shell: pwsh
-        run: Get-ChildItem -Path build/bin -Recurse | Select-Object FullName, Length
+      - name: Configure CMake CUDA
+        shell: powershell
+        run: |
+          cmake -B build `
+            -DGGML_CUDA=ON `
+            -DCMAKE_BUILD_TYPE=Release
 
-      - name: Upload Windows binaries
+      - name: Build Release
+        shell: powershell
+        run: |
+          cmake --build build --config Release -j 4
+
+      - name: Package
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force llama-locate-win-cuda
+          Copy-Item build\bin\Release\*.exe llama-locate-win-cuda\
+          Copy-Item build\bin\Release\*.dll llama-locate-win-cuda\
+          Copy-Item "C:\Program Files\Git\mingw64\bin\libssl-3-x64.dll" llama-locate-win-cuda\ -ErrorAction SilentlyContinue
+          Copy-Item "C:\Program Files\Git\mingw64\bin\libcrypto-3-x64.dll" llama-locate-win-cuda\ -ErrorAction SilentlyContinue
+          Compress-Archive -Path llama-locate-win-cuda\* -DestinationPath llama-locate-win-cuda.zip
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: llama-cpp-windows-x64
-          path: |
-            build/bin/Release/**
-            build/bin/*.dll
-            build/bin/*.exe
-          if-no-files-found: error
+          name: llama-locate-win-cuda
+          path: llama-locate-win-cuda.zip
