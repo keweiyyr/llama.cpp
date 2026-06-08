@@ -21,7 +21,8 @@ jobs:
           git branch
           git rev-parse HEAD
           git log -1 --oneline
-          git grep -n "locateanything" -- . || exit 1
+          git grep -n "locateanything" -- .
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Setup CUDA
         uses: Jimver/cuda-toolkit@v0.2.24
